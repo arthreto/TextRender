@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TextRender 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Luckiest+Guy&family=Titan+One&family=Bowlby+One&family=Rubik:wght@900&family=Baloo+2:wght@800&family=Passion+One:wght@900&family=Bungee&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>TextRender <span>3D</span></h1>
+  <div class="actions">
+    <button id="btnRandom" class="ghost" title="Nouveau tirage pour l'inclinaison des lettres">🎲 Varier</button>
+    <button id="btnCopy" class="ghost">Copier</button>
+    <button id="btnDownload" class="primary">Télécharger PNG</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="preview">
+    <div class="texts">
+      <label class="textfield">
+        <span>Ligne du haut</span>
+        <input id="text1" type="text" value="NEXTBOT" spellcheck="false" autocomplete="off">
+      </label>
+      <label class="textfield">
+        <span>Ligne du bas</span>
+        <input id="text2" type="text" value="CREATION" spellcheck="false" autocomplete="off">
+      </label>
+    </div>
+    <div id="stage" class="stage checker">
+      <canvas id="view"></canvas>
+    </div>
+  </section>
+
+  <aside class="panel" id="panel">
+    <details open>
+      <summary>Couleurs</summary>
+      <div class="group">
+        <div class="row-label">Ligne du haut</div>
+        <div class="presets" data-line="0"></div>
+        <div class="colors" data-line="0"></div>
+      </div>
+      <div class="group">
+        <div class="row-label">Ligne du bas</div>
+        <div class="presets" data-line="1"></div>
+        <div class="colors" data-line="1"></div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>Police &amp; mise en page</summary>
+      <label class="field">Police
+        <select id="font">
+          <option value="Lilita One">Lilita One (par défaut)</option>
+          <option value="Titan One">Titan One</option>
+          <option value="Luckiest Guy">Luckiest Guy</option>
+          <option value="Bowlby One">Bowlby One</option>
+          <option value="Rubik:900">Rubik Black</option>
+          <option value="Baloo 2:800">Baloo 2</option>
+          <option value="Passion One:900">Passion One</option>
+          <option value="Bungee">Bungee</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="upper" checked> Tout en majuscules</label>
+      <label class="check"><input type="checkbox" id="sameWidth" checked> Même largeur pour les deux lignes</label>
+      <div class="sliders" id="layoutSliders"></div>
+    </details>
+
+    <details open>
+      <summary>Relief 3D</summary>
+      <div class="sliders" id="depthSliders"></div>
+    </details>
+
+    <details>
+      <summary>Fond &amp; export</summary>
+      <label class="check"><input type="checkbox" id="transparent" checked> Fond transparent</label>
+      <label class="field">Couleur du fond <input type="color" id="bgColor" value="#1b1f3a"></label>
+      <label class="field">Taille d'export
+        <select id="exportScale">
+          <option value="1">Standard</option>
+          <option value="2" selected>HD (×2)</option>
+          <option value="3">Ultra (×3)</option>
+        </select>
+      </label>
+      <button id="btnReset" class="ghost full">Réinitialiser les réglages</button>
+    </details>
+  </aside>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
