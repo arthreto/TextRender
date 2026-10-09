@@ -1,7 +1,7 @@
 # TextRender 3D
 
 Éditeur web pour créer des logos de texte 3D façon cartoon (style « NEXTBOT CREATION ») :
-face en dégradé brillant, relief 3D en perspective, contour sombre et ombre portée.
+police géométrique très grasse (Montserrat Black), face en dégradé avec biseau éclairé, relief 3D en perspective, contour sombre et ombre portée.
 
 ## Utilisation
 

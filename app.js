@@ -6,8 +6,8 @@
 // extNear / extFar : couleur du relief (près de la face → au fond)
 // outline : contour sombre
 const PRESETS = {
-  glace:  { name: 'Glace',  faceTop: '#ffffff', faceMid: '#e9edfa', faceBottom: '#9ba7d8', extNear: '#7584bd', extFar: '#353f73', outline: '#1a1e42' },
-  feu:    { name: 'Feu',    faceTop: '#ffe95c', faceMid: '#ffb524', faceBottom: '#ff7400', extNear: '#e35f0c', extFar: '#8a2a03', outline: '#451302' },
+  glace:  { name: 'Glace',  faceTop: '#ffffff', faceMid: '#e6ecfb', faceBottom: '#b7c4e6', extNear: '#4a6290', extFar: '#1f2b47', outline: '#111827' },
+  feu:    { name: 'Feu',    faceTop: '#ffd21a', faceMid: '#ffab00', faceBottom: '#ff7008', extNear: '#c8360a', extFar: '#560e02', outline: '#2c0a04' },
   rouge:  { name: 'Rouge',  faceTop: '#ffa08f', faceMid: '#ff3d3d', faceBottom: '#c4121f', extNear: '#a50f1b', extFar: '#55060f', outline: '#2b0307' },
   vert:   { name: 'Vert',   faceTop: '#eaff86', faceMid: '#7fe03a', faceBottom: '#2e9e1c', extNear: '#24811a', extFar: '#0f420c', outline: '#07240a' },
   bleu:   { name: 'Bleu',   faceTop: '#b5f3ff', faceMid: '#3cb8ff', faceBottom: '#1660d8', extNear: '#1450b0', extFar: '#0a2766', outline: '#061433' },
@@ -27,6 +27,7 @@ const SLIDERS = {
     ['lineGap',  'Écart entre les lignes', -0.3, 0.5, 0.01],
     ['jitter',   'Lettres penchées (°)',   0, 15, 0.5],
     ['jitterY',  'Lettres décalées',       0, 0.1, 0.005],
+    ['stretch',  'Hauteur des lettres',    0.7, 1.8, 0.01],
     ['rotation', 'Rotation globale (°)',  -20, 20, 0.5],
   ],
   depthSliders: [
@@ -34,16 +35,17 @@ const SLIDERS = {
     ['angle',       'Direction du relief (°)', 0, 180, 1],
     ['perspective', 'Perspective',         0, 1.5, 0.05],
     ['outline',     'Épaisseur du contour', 0, 0.08, 0.002],
-    ['bevel',       'Brillance / biseau',  0, 1, 0.05],
+    ['bevelSize',   'Largeur du biseau',   0, 0.1, 0.002],
+    ['bevel',       'Intensité du biseau', 0, 1.5, 0.05],
     ['shadow',      'Ombre portée',        0, 1, 0.05],
   ],
 };
 
 const DEFAULTS = {
   text1: 'NEXTBOT', text2: 'CREATION',
-  font: 'Lilita One', upper: true, sameWidth: true,
-  spacing: -0.035, lineGap: 0.0, jitter: 4, jitterY: 0.02, rotation: 0,
-  depth: 0.14, angle: 78, perspective: 0.45, outline: 0.03, bevel: 0.75, shadow: 0.5,
+  font: 'Montserrat:900', upper: true, sameWidth: true,
+  spacing: -0.02, lineGap: 0.0, jitter: 0.5, jitterY: 0.008, stretch: 1.15, rotation: 0,
+  depth: 0.15, angle: 90, perspective: 0.8, outline: 0.02, bevelSize: 0.04, bevel: 1, shadow: 0.35,
   transparent: true, bgColor: '#1b1f3a', exportScale: 2, seed: 7,
   lines: [{ preset: 'glace', ...PRESETS.glace }, { preset: 'feu', ...PRESETS.feu }],
 };
@@ -55,13 +57,13 @@ let state = load();
 // ---------- Utilitaires ----------
 function load() {
   try {
-    const s = JSON.parse(localStorage.getItem('textrender3d'));
+    const s = JSON.parse(localStorage.getItem('textrender3d_v2'));
     if (s && s.lines) return { ...structuredClone(DEFAULTS), ...s };
   } catch (e) { /* stockage indisponible */ }
   return structuredClone(DEFAULTS);
 }
 function save() {
-  try { localStorage.setItem('textrender3d', JSON.stringify(state)); } catch (e) { /* ignore */ }
+  try { localStorage.setItem('textrender3d_v2', JSON.stringify(state)); } catch (e) { /* ignore */ }
 }
 function mulberry32(a) {
   return function () {
@@ -109,18 +111,20 @@ function layoutLines(scale) {
   const nonEmpty = natural.filter(n => n.total > 0);
   const target = nonEmpty.length ? nonEmpty.reduce((a, n) => a + n.total, 0) / nonEmpty.length : 0;
 
-  let y = 0;
+  let y = 0, prevH = 0;
   return natural.map((n, li) => {
     const size = state.sameWidth && n.total > 0 ? n.size * (target / n.total) : n.size;
     meas.font = `${weight} ${size}px "${family}"`;
     const chars = [...n.text];
     const widths = chars.map(ch => meas.measureText(ch).width);
     const cap = meas.measureText('H').actualBoundingBoxAscent || size * 0.7;
+    const h = cap * state.stretch; // hauteur visible des lettres
     const spacing = state.spacing * size;
     const total = widths.reduce((a, b) => a + b, 0) + Math.max(0, chars.length - 1) * spacing;
 
-    if (li > 0) y += cap + state.lineGap * size + size * 0.06;
-    const baseline = y;
+    if (li > 0 && n.total > 0) y += prevH / 2 + h / 2 + state.lineGap * size;
+    if (n.total > 0) prevH = h;
+    const cy = y;
 
     let x = -total / 2;
     const letters = chars.map((ch, i) => {
@@ -128,138 +132,221 @@ function layoutLines(scale) {
       const L = {
         ch, w,
         x: x + w / 2,
-        y: baseline - cap / 2 + (rand() - 0.5) * 2 * state.jitterY * size, // centre vertical de la lettre
+        y: cy + (rand() - 0.5) * 2 * state.jitterY * size, // centre de la lettre
         rot: ((rand() - 0.5) * 2 * state.jitter * Math.PI) / 180,
       };
       x += w + spacing;
       return L;
     });
-    return { li, letters, size, cap, total, font: `${weight} ${size}px "${family}"`, colors: state.lines[li] };
+    return { li, letters, size, cap, h, total, cy, font: `${weight} ${size}px "${family}"`, colors: state.lines[li] };
   });
 }
 
-// Exécute fn dans le repère local de la lettre (origine = centre, texte centré sur la ligne de base).
-function inLetter(ctx, line, L, ox, oy, fn) {
+// Dessine la lettre L (centrée sur L.x, L.y) avec l'opération op ('fill' ou 'stroke').
+function glyph(ctx, line, L, op) {
   ctx.save();
-  ctx.translate(L.x + ox, L.y + oy);
+  ctx.translate(L.x, L.y);
   ctx.rotate(L.rot);
-  fn(ctx, line.cap / 2);
+  ctx.scale(1, state.stretch);
+  if (op === 'stroke') ctx.strokeText(L.ch, 0, line.cap / 2);
+  else ctx.fillText(L.ch, 0, line.cap / 2);
   ctx.restore();
 }
 
-function extrusionVector(line, L, halfWidth) {
-  const a = (state.angle * Math.PI) / 180;
-  const d = state.depth * line.size;
-  let vx = Math.cos(a) * d;
-  const vy = Math.sin(a) * d;
-  // Perspective : les lettres fuient vers un point situé sous le centre du texte.
-  vx += (-L.x / Math.max(1, halfWidth)) * state.perspective * d * 0.6;
-  return [vx, vy];
-}
-
-// ---------- Rendu d'une ligne ----------
-function renderLine(line, bounds) {
-  const { size, colors } = line;
-  const W = bounds.w, H = bounds.h, OX = bounds.ox, OY = bounds.oy;
-  const halfWidth = bounds.halfWidth;
-  const outlineW = state.outline * size;
-
-  const art = makeCanvas(W, H);
-  const ctx = art.getContext('2d');
-  ctx.translate(OX, OY);
+function setupText(ctx, line) {
   ctx.font = line.font;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
+}
 
-  const vecs = line.letters.map(L => extrusionVector(line, L, halfWidth));
+// Perspective à un point de fuite : la face arrière est une homothétie de la face avant
+// de centre V (point de fuite) et de rapport (1 - k·t).
+function withDepth(ctx, P, t, fn) {
+  const s = 1 - P.k * t;
+  ctx.save();
+  ctx.translate(P.vx, P.vy);
+  ctx.scale(s, s);
+  ctx.translate(-P.vx, -P.vy);
+  fn();
+  ctx.restore();
+}
 
-  // 1) Contour épais autour de la silhouette complète (face + relief)
+// ---------- Biseau éclairé (transformée de distance) ----------
+const INF = 1e20;
+function edt1d(f, n, d, v, z) {
+  let k = 0; v[0] = 0; z[0] = -INF; z[1] = INF;
+  for (let q = 1; q < n; q++) {
+    let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    while (s <= z[k]) { k--; s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
+    k++; v[k] = q; z[k] = s; z[k + 1] = INF;
+  }
+  k = 0;
+  for (let q = 0; q < n; q++) {
+    while (z[k + 1] < q) k++;
+    d[q] = (q - v[k]) * (q - v[k]) + f[v[k]];
+  }
+}
+// Distance euclidienne de chaque pixel intérieur au bord (Felzenszwalb & Huttenlocher).
+function distanceField(alpha, w, h) {
+  const grid = new Float64Array(w * h);
+  for (let i = 0; i < w * h; i++) grid[i] = alpha[i] > 127 ? INF : 0;
+  const n = Math.max(w, h);
+  const f = new Float64Array(n), d = new Float64Array(n), z = new Float64Array(n + 1);
+  const v = new Int32Array(n);
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) f[y] = grid[y * w + x];
+    edt1d(f, h, d, v, z);
+    for (let y = 0; y < h; y++) grid[y * w + x] = d[y];
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) f[x] = grid[y * w + x];
+    edt1d(f, w, d, v, z);
+    for (let x = 0; x < w; x++) grid[y * w + x] = Math.sqrt(d[x]);
+  }
+  return grid;
+}
+
+function gradientLUT(c) {
+  const g = makeCanvas(1, 256).getContext('2d');
+  const lg = g.createLinearGradient(0, 0, 0, 256);
+  lg.addColorStop(0, c.faceTop);
+  lg.addColorStop(0.45, c.faceMid);
+  lg.addColorStop(1, c.faceBottom);
+  g.fillStyle = lg; g.fillRect(0, 0, 1, 256);
+  return g.getImageData(0, 0, 1, 256).data;
+}
+
+// Flou "boîte" séparable (2 passes) pour lisser la carte de hauteur du biseau.
+function blurField(a, w, h, r) {
+  const tmp = new Float32Array(a.length);
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < h; y++) {
+      let acc = 0; const row = y * w;
+      for (let x = -r; x <= r; x++) acc += a[row + Math.min(w - 1, Math.max(0, x))];
+      for (let x = 0; x < w; x++) {
+        tmp[row + x] = acc / (2 * r + 1);
+        acc += a[row + Math.min(w - 1, x + r + 1)] - a[row + Math.max(0, x - r)];
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+      for (let y = 0; y < h; y++) {
+        a[y * w + x] = acc / (2 * r + 1);
+        acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+      }
+    }
+  }
+}
+
+// Image de la face avant d'une lettre : dégradé + biseau éclairé par une lumière en haut à gauche.
+function letterFace(line, L, lut) {
+  const { size, colors } = line;
+  const b = Math.max(1.5, state.bevelSize * size);
+  const side = Math.ceil(Math.max(L.w, line.h) * 1.5 + 8);
+  const cv = makeCanvas(side, side);
+  const c = cv.getContext('2d');
+  setupText(c, line);
+  c.fillStyle = '#fff';
+  c.translate(side / 2 - L.x, side / 2 - L.y);
+  glyph(c, line, L, 'fill');
+
+  const img = c.getImageData(0, 0, side, side);
+  const px = img.data;
+  const alpha = new Uint8Array(side * side);
+  for (let i = 0; i < alpha.length; i++) alpha[i] = px[i * 4 + 3];
+  const dist = distanceField(alpha, side, side);
+
+  // hauteur du biseau : monte de 0 au bord à 1 à la distance b (profil légèrement arrondi)
+  const H = new Float32Array(side * side);
+  for (let i = 0; i < H.length; i++) {
+    const t = Math.min(1, dist[i] / b);
+    H[i] = b * (t * (1.6 - 0.6 * t));
+  }
+  blurField(H, side, side, Math.max(1, Math.round(b * 0.25)));
+
+  const strength = state.bevel;
+  let lx = -0.45, ly = -0.8, lz = 0.55;
+  const ln = Math.hypot(lx, ly, lz); lx /= ln; ly /= ln; lz /= ln;
+  const dark = hexToRgb(colors.extNear);
+  const top = L.y - line.h / 2, hh = line.h;
+  const oy = L.y - side / 2;
+
+  for (let y = 0; y < side; y++) {
+    const gy = Math.min(255, Math.max(0, Math.round(((oy + y - top) / hh) * 255))) * 4;
+    const br = lut[gy], bg = lut[gy + 1], bb = lut[gy + 2];
+    for (let x = 0; x < side; x++) {
+      const i = y * side + x;
+      if (!alpha[i]) continue;
+      const hx = (H[i + (x < side - 1 ? 1 : 0)] - H[i - (x > 0 ? 1 : 0)]) / 2;
+      const hy = (H[i + (y < side - 1 ? side : 0)] - H[i - (y > 0 ? side : 0)]) / 2;
+      let nx = -hx * strength, ny = -hy * strength;
+      const nn = Math.hypot(nx, ny, 1);
+      const dot = (nx * lx + ny * ly + lz) / nn;
+      const shade = dot / lz; // 1 = surface plane
+      let r = br, g = bg, bl = bb;
+      if (shade >= 1) {
+        const k = Math.min(1, (shade - 1) * 0.9);
+        r += (255 - r) * k; g += (255 - g) * k; bl += (255 - bl) * k;
+      } else {
+        const k = Math.max(0, shade);
+        r = dark[0] + (r - dark[0]) * k; g = dark[1] + (g - dark[1]) * k; bl = dark[2] + (bl - dark[2]) * k;
+      }
+      const o = i * 4;
+      px[o] = r; px[o + 1] = g; px[o + 2] = bl;
+    }
+  }
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.putImageData(img, 0, 0);
+  return { canvas: cv, x: L.x - side / 2, y: L.y - side / 2 };
+}
+
+// ---------- Rendu d'une ligne ----------
+function renderLine(line, bounds, P) {
+  const { size, colors } = line;
+  const outlineW = state.outline * size;
+
+  const art = makeCanvas(bounds.w, bounds.h);
+  const ctx = art.getContext('2d');
+  ctx.translate(bounds.ox, bounds.oy);
+  setupText(ctx, line);
+
+  const depthPx = state.depth * size * 1.3;
+
+  // 1) Contour sombre autour de toute la silhouette (face + relief)
   if (outlineW > 0) {
     ctx.strokeStyle = colors.outline;
     ctx.fillStyle = colors.outline;
     ctx.lineWidth = outlineW * 2;
-    line.letters.forEach((L, i) => {
-      const [vx, vy] = vecs[i];
-      const len = Math.hypot(vx, vy);
-      const steps = Math.max(1, Math.ceil(len / Math.max(1, outlineW * 0.7)));
-      for (let s = steps; s >= 0; s--) {
-        const t = s / steps;
-        inLetter(ctx, line, L, vx * t, vy * t, (c, by) => { c.strokeText(L.ch, 0, by); c.fillText(L.ch, 0, by); });
-      }
-    });
-  }
-
-  // 2) Relief (extrusion) : on empile la lettre du fond vers l'avant
-  line.letters.forEach((L, i) => {
-    const [vx, vy] = vecs[i];
-    const steps = Math.max(1, Math.ceil(Math.hypot(vx, vy)));
-    for (let s = steps; s >= 1; s--) {
-      const t = s / steps;
-      ctx.fillStyle = mix(colors.extNear, colors.extFar, Math.pow(t, 0.8));
-      inLetter(ctx, line, L, vx * t, vy * t, (c, by) => c.fillText(L.ch, 0, by));
+    const steps = Math.max(1, Math.ceil(depthPx / Math.max(1, outlineW * 0.7)));
+    for (let s = steps; s >= 0; s--) {
+      withDepth(ctx, P, s / steps, () => line.letters.forEach(L => {
+        glyph(ctx, line, L, 'stroke'); glyph(ctx, line, L, 'fill');
+      }));
     }
-  });
-
-  // 3) Faces avant avec dégradé + biseau lumineux
-  const face = makeCanvas(W, H);
-  const f = face.getContext('2d');
-  f.translate(OX, OY);
-  f.font = line.font; f.textAlign = 'center'; f.textBaseline = 'alphabetic';
-  f.lineJoin = 'round';
-  line.letters.forEach(L => {
-    inLetter(f, line, L, 0, 0, (c, by) => {
-      const g = c.createLinearGradient(0, -line.cap / 2, 0, line.cap / 2);
-      g.addColorStop(0, colors.faceTop);
-      g.addColorStop(0.42, colors.faceMid);
-      g.addColorStop(1, colors.faceBottom);
-      c.fillStyle = g;
-      c.fillText(L.ch, 0, by);
-    });
-  });
-
-  if (state.bevel > 0) {
-    const b = size * 0.035;
-    // bord supérieur clair
-    applyRim(f, line, W, H, OX, OY, 0, b, '#ffffff', 0.85 * state.bevel, b * 0.6);
-    // reflet gauche léger
-    applyRim(f, line, W, H, OX, OY, b * 0.7, 0, '#ffffff', 0.35 * state.bevel, b * 0.6);
-    // bord inférieur sombre
-    applyRim(f, line, W, H, OX, OY, -b * 0.3, -b * 1.1, colors.faceBottom === '#ffffff' ? '#000000' : colors.extFar, 0.55 * state.bevel, b * 0.8);
-    // brillance spéculaire : petite bande blanche nette juste sous le haut des lettres
-    applyRim(f, line, W, H, OX, OY, 0, b * 0.35, '#ffffff', 0.9 * state.bevel, 0);
   }
 
-  ctx.drawImage(face, -OX, -OY);
-  // Liseré sombre autour de chaque face (sépare les lettres qui se chevauchent)
+  // 2) Relief : on empile les tranches du fond vers l'avant
+  const steps = Math.max(1, Math.ceil(depthPx));
+  for (let s = steps; s >= 1; s--) {
+    const t = s / steps;
+    ctx.fillStyle = mix(colors.extNear, colors.extFar, Math.pow(t, 0.9));
+    withDepth(ctx, P, t, () => line.letters.forEach(L => glyph(ctx, line, L, 'fill')));
+  }
+
+  // 3) Faces avant, lettre par lettre (chaque lettre a son liseré sombre)
+  const lut = gradientLUT(colors);
   ctx.strokeStyle = colors.outline;
-  ctx.lineWidth = Math.max(1, size * 0.014);
-  ctx.globalAlpha = 0.85;
-  line.letters.forEach(L => inLetter(ctx, line, L, 0, 0, (c, by) => c.strokeText(L.ch, 0, by)));
-  ctx.globalAlpha = 1;
+  ctx.lineWidth = Math.max(1, state.outline * size * 0.6);
+  line.letters.forEach(L => {
+    glyph(ctx, line, L, 'stroke');
+    const f = letterFace(line, L, lut);
+    ctx.drawImage(f.canvas, f.x, f.y);
+  });
 
   return art;
-}
-
-// Dessine un liseré (zone de la lettre moins la lettre décalée) en mode source-atop sur la face.
-function applyRim(f, line, W, H, OX, OY, dx, dy, color, alpha, blur) {
-  const rim = makeCanvas(W, H);
-  const r = rim.getContext('2d');
-  r.translate(OX, OY);
-  r.font = line.font; r.textAlign = 'center'; r.textBaseline = 'alphabetic';
-  r.fillStyle = color;
-  line.letters.forEach(L => inLetter(r, line, L, 0, 0, (c, by) => c.fillText(L.ch, 0, by)));
-  r.globalCompositeOperation = 'destination-out';
-  line.letters.forEach(L => inLetter(r, line, L, dx, dy, (c, by) => c.fillText(L.ch, 0, by)));
-
-  f.save();
-  f.setTransform(1, 0, 0, 1, 0, 0);
-  f.globalCompositeOperation = 'source-atop';
-  f.globalAlpha = alpha;
-  if (blur > 0) f.filter = `blur(${blur}px)`;
-  f.drawImage(rim, 0, 0);
-  f.restore();
 }
 
 // ---------- Rendu complet ----------
@@ -267,20 +354,26 @@ function render(scale) {
   const lines = layoutLines(scale).filter(l => l.letters.length);
   if (!lines.length) return makeCanvas(10, 10);
 
-  // Boîte englobante approximative avec marge pour relief, contour, ombre et rotation
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   lines.forEach(l => l.letters.forEach(L => {
-    const m = l.size * (state.depth * 1.8 + state.outline * 2 + 0.35);
-    minX = Math.min(minX, L.x - L.w / 2 - m); maxX = Math.max(maxX, L.x + L.w / 2 + m);
-    minY = Math.min(minY, L.y - l.size * 0.7 - m); maxY = Math.max(maxY, L.y + l.size * 0.7 + m);
+    const m = l.size * (state.depth * 2 + state.outline * 2 + 0.3);
+    const r = Math.max(L.w, l.h) * 0.75;
+    minX = Math.min(minX, L.x - r - m); maxX = Math.max(maxX, L.x + r + m);
+    minY = Math.min(minY, L.y - r - m); maxY = Math.max(maxY, L.y + r + m);
   }));
-  const halfWidth = Math.max(...lines.map(l => l.total / 2));
-  const bounds = { w: maxX - minX, h: maxY - minY, ox: -minX, oy: -minY, halfWidth };
+  const bounds = { w: maxX - minX, h: maxY - minY, ox: -minX, oy: -minY };
+
+  // Point de fuite commun : dans la direction du relief, à une distance qui dépend de la perspective
+  const ref = lines[0].size;
+  const midY = (Math.min(...lines.map(l => l.cy - l.h / 2)) + Math.max(...lines.map(l => l.cy + l.h / 2))) / 2;
+  const a = (state.angle * Math.PI) / 180;
+  const dist = ref * 4 / Math.max(0.01, state.perspective);
+  const P = { vx: Math.cos(a) * dist, vy: midY + Math.sin(a) * dist, k: (state.depth * ref) / dist };
 
   const comp = makeCanvas(bounds.w, bounds.h);
   const c = comp.getContext('2d');
   lines.forEach(line => {
-    const art = renderLine(line, bounds);
+    const art = renderLine(line, bounds, P);
     if (state.shadow > 0) {
       c.save();
       c.shadowColor = `rgba(0,0,0,${0.55 * state.shadow})`;
@@ -296,12 +389,12 @@ function render(scale) {
   // Rotation globale
   let out = comp;
   if (state.rotation) {
-    const a = (state.rotation * Math.PI) / 180;
-    const w = Math.abs(comp.width * Math.cos(a)) + Math.abs(comp.height * Math.sin(a));
-    const h = Math.abs(comp.width * Math.sin(a)) + Math.abs(comp.height * Math.cos(a));
+    const r = (state.rotation * Math.PI) / 180;
+    const w = Math.abs(comp.width * Math.cos(r)) + Math.abs(comp.height * Math.sin(r));
+    const h = Math.abs(comp.width * Math.sin(r)) + Math.abs(comp.height * Math.cos(r));
     out = makeCanvas(w, h);
     const o = out.getContext('2d');
-    o.translate(w / 2, h / 2); o.rotate(a);
+    o.translate(w / 2, h / 2); o.rotate(r);
     o.drawImage(comp, -comp.width / 2, -comp.height / 2);
   }
   return trim(out, Math.round(16 * scale));
