@@ -44,7 +44,7 @@ const SLIDERS = {
 
 const DEFAULTS = {
   text1: 'NEXTBOT', text2: 'CREATION',
-  font: 'Montserrat:900', upper: true, sameWidth: true,
+  font: 'Montserrat:900', upper: true, sameWidth: false,
   spacing: 0.01, lineGap: 0.0, jitter: 0.5, jitterY: 0.008, stretch: 1.25, bold: 0.015, rotation: 0,
   depth: 0.13, angle: 90, perspective: 1.7, outline: 0.016, bevelSize: 0.05, bevel: 0.45, shadow: 0,
   transparent: true, bgColor: '#1b1f3a', exportScale: 2, seed: 7,
@@ -58,13 +58,13 @@ let state = load();
 // ---------- Utilitaires ----------
 function load() {
   try {
-    const s = JSON.parse(localStorage.getItem('textrender3d_v5'));
+    const s = JSON.parse(localStorage.getItem('textrender3d_v6'));
     if (s && s.lines) return { ...structuredClone(DEFAULTS), ...s };
   } catch (e) { /* stockage indisponible */ }
   return structuredClone(DEFAULTS);
 }
 function save() {
-  try { localStorage.setItem('textrender3d_v5', JSON.stringify(state)); } catch (e) { /* ignore */ }
+  try { localStorage.setItem('textrender3d_v6', JSON.stringify(state)); } catch (e) { /* ignore */ }
 }
 function mulberry32(a) {
   return function () {
@@ -455,7 +455,7 @@ function render(scale) {
   const bounds = { w: maxX - minX, h: maxY - minY, ox: -minX, oy: -minY };
 
   // Point de fuite commun : dans la direction du relief, à une distance qui dépend de la perspective
-  const ref = lines[0].size;
+  const ref = BASE_SIZE * scale; // même caméra quel que soit le texte
   const midY = (Math.min(...lines.map(l => l.cy - l.h / 2)) + Math.max(...lines.map(l => l.cy + l.h / 2))) / 2;
   const a = (state.angle * Math.PI) / 180;
   const dist = ref * 4 / Math.max(0.01, state.perspective);
