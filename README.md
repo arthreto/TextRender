@@ -11,9 +11,14 @@ Ouvre `index.html` dans un navigateur (aucune installation nécessaire), ou sers
 python3 -m http.server 8000   # puis http://localhost:8000
 ```
 
-1. Tape le texte de la **ligne du haut** et de la **ligne du bas**.
-2. Choisis les couleurs (préréglages Glace, Feu, Rouge, Vert, Bleu, Rose, Violet, Or, Noir, ou couleurs perso).
-3. Ajuste la police, l'espacement, l'inclinaison des lettres, la profondeur, la perspective, le contour, la brillance et l'ombre.
-4. **Télécharger PNG** (fond transparent par défaut, export HD ×2 ou ×3) ou **Copier** dans le presse-papiers.
+1. Choisis le **format de l'image** (par défaut 1024 × 1024) : le texte a toujours la même taille et la même
+   position dans l'image, quel que soit le texte. Pratique pour une série d'icônes (gamepass, miniatures…).
+   « Taille du texte » et « Position verticale » règlent le placement ; garde les mêmes valeurs pour toute la série.
+2. Tape le texte de la **ligne du haut** et de la **ligne du bas**.
+3. Choisis les couleurs (préréglages Glace, Feu, Rouge, Vert, Bleu, Rose, Violet, Or, Noir, ou couleurs perso).
+4. Ajuste la police, l'espacement, l'inclinaison des lettres, la profondeur, la perspective, le contour, la brillance et l'ombre.
+5. **Télécharger PNG** (fond transparent par défaut) ou **Copier** dans le presse-papiers.
 
-Le bouton 🎲 **Varier** change l'inclinaison aléatoire des lettres. Les réglages sont mémorisés dans le navigateur.
+Le bouton 🎲 **Varier** change l'inclinaison aléatoire des lettres. Les réglages sont mémorisés dans le navigateur. Pour ne jamais les perdre (autre navigateur, autre PC,
+navigation privée…), utilise **Mes réglages → 💾 Enregistrer** : ça télécharge un fichier
+`reglages-textrender3d.json` que tu rouvres avec **📂 Ouvrir…**. **↺ Réglages par défaut** remet le style d'origine.

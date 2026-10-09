@@ -32,12 +32,52 @@
         <input id="text2" type="text" value="CREATION" spellcheck="false" autocomplete="off">
       </label>
     </div>
-    <div id="stage" class="stage checker">
-      <canvas id="view"></canvas>
+    <div id="stage" class="stage">
+      <canvas id="view" class="checker"></canvas>
     </div>
+    <div id="overflowWarn" class="warn" hidden>⚠ Le texte dépasse du cadre : baisse « Taille du texte » (et garde la même valeur pour toutes tes images).</div>
   </section>
 
   <aside class="panel" id="panel">
+    <details open>
+      <summary>Mes réglages</summary>
+      <p class="hint">Enregistre tes réglages (couleurs, police, relief, format…) dans un fichier pour les retrouver plus tard. Le texte tapé n'est pas inclus.</p>
+      <div class="btnrow">
+        <button id="btnSaveSettings" class="ghost">💾 Enregistrer</button>
+        <button id="btnLoadSettings" class="ghost">📂 Ouvrir…</button>
+      </div>
+      <input type="file" id="settingsFile" accept=".json,application/json" hidden>
+    </details>
+
+    <details open>
+      <summary>Image &amp; export</summary>
+      <label class="field">Format de l'image
+        <select id="frame">
+          <option value="1024x1024">Carré 1024 × 1024</option>
+          <option value="512x512">Carré 512 × 512</option>
+          <option value="1024x512">Large 1024 × 512</option>
+          <option value="1280x720">16:9 1280 × 720</option>
+          <option value="1920x1080">16:9 1920 × 1080</option>
+          <option value="custom">Personnalisé…</option>
+          <option value="fit">Ajusté au texte (taille variable)</option>
+        </select>
+      </label>
+      <div id="customFrame" class="dims" hidden>
+        <label>Largeur <input type="number" id="frameW" min="64" max="4096" step="1"></label>
+        <label>Hauteur <input type="number" id="frameH" min="64" max="4096" step="1"></label>
+      </div>
+      <div class="sliders" id="frameSliders"></div>
+      <label class="field" id="exportScaleRow">Taille d'export
+        <select id="exportScale">
+          <option value="1">Standard</option>
+          <option value="2" selected>HD (×2)</option>
+          <option value="3">Ultra (×3)</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="transparent" checked> Fond transparent</label>
+      <label class="field">Couleur du fond <input type="color" id="bgColor" value="#1b1f3a"></label>
+    </details>
+
     <details open>
       <summary>Couleurs</summary>
       <div class="group">
@@ -79,18 +119,6 @@
       <div class="sliders" id="depthSliders"></div>
     </details>
 
-    <details>
-      <summary>Fond &amp; export</summary>
-      <label class="check"><input type="checkbox" id="transparent" checked> Fond transparent</label>
-      <label class="field">Couleur du fond <input type="color" id="bgColor" value="#1b1f3a"></label>
-      <label class="field">Taille d'export
-        <select id="exportScale">
-          <option value="1">Standard</option>
-          <option value="2" selected>HD (×2)</option>
-          <option value="3">Ultra (×3)</option>
-        </select>
-      </label>
-    </details>
   </aside>
 </main>
 

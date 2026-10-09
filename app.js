@@ -22,6 +22,10 @@ const COLOR_KEYS = [
 ];
 
 const SLIDERS = {
+  frameSliders: [
+    ['textSize', 'Taille du texte',     0.04, 0.4, 0.002],
+    ['offsetY',  'Position verticale', -0.45, 0.45, 0.005],
+  ],
   layoutSliders: [
     ['spacing',  'Espacement des lettres', -0.15, 0.15, 0.005],
     ['lineGap',  'Écart entre les lignes', -0.3, 0.5, 0.01],
@@ -47,25 +51,63 @@ const DEFAULTS = {
   font: 'Montserrat:900', upper: true, sameWidth: false,
   spacing: 0.01, lineGap: 0.0, jitter: 0.5, jitterY: 0.008, stretch: 1.25, bold: 0.015, rotation: 0,
   depth: 0.13, angle: 90, perspective: 1.7, outline: 0.016, bevelSize: 0.05, bevel: 0.45, shadow: 0,
+  frame: '1024x1024', frameW: 1024, frameH: 1024, textSize: 0.14, offsetY: 0,
   transparent: true, bgColor: '#1b1f3a', exportScale: 2, seed: 7,
   lines: [{ preset: 'glace', ...PRESETS.glace }, { preset: 'feu', ...PRESETS.feu }],
 };
 
 const BASE_SIZE = 220; // taille de police de référence (px) pour l'aperçu
 
-let state = load();
-
 // ---------- Utilitaires ----------
+// Clé de stockage fixe : les nouveaux réglages ajoutés plus tard prennent leur valeur par défaut
+// (voir sanitize), les anciens sont conservés.
+const STORAGE_KEY = 'textrender3d_v6';
 function load() {
   try {
-    const s = JSON.parse(localStorage.getItem('textrender3d_v6'));
-    if (s && s.lines) return { ...structuredClone(DEFAULTS), ...s };
+    const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (s && typeof s === 'object') return sanitize(s);
   } catch (e) { /* stockage indisponible */ }
   return structuredClone(DEFAULTS);
 }
 function save() {
-  try { localStorage.setItem('textrender3d_v6', JSON.stringify(state)); } catch (e) { /* ignore */ }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
 }
+
+// Valide des réglages venant du navigateur ou d'un fichier : seules les clés connues, du bon type
+// et dans les bornes sont reprises, le reste garde sa valeur par défaut.
+const HEX = /^#[0-9a-f]{6}$/i;
+function sanitize(src) {
+  const out = structuredClone(DEFAULTS);
+  if (!src || typeof src !== 'object') return out;
+  for (const k of Object.keys(DEFAULTS)) {
+    if (k === 'lines' || !(k in src)) continue;
+    const v = src[k];
+    if (typeof v !== typeof DEFAULTS[k]) continue;
+    if (typeof v === 'number' && !Number.isFinite(v)) continue;
+    out[k] = v;
+  }
+  const ranges = Object.fromEntries(Object.values(SLIDERS).flat().map(([k, , min, max]) => [k, [min, max]]));
+  for (const [k, [min, max]] of Object.entries(ranges)) out[k] = Math.min(max, Math.max(min, out[k]));
+  const options = id => [...document.querySelectorAll(`#${id} option`)].map(o => o.value);
+  if (!options('font').includes(out.font)) out.font = DEFAULTS.font;
+  if (!options('frame').includes(out.frame)) out.frame = DEFAULTS.frame;
+  if (![1, 2, 3].includes(out.exportScale)) out.exportScale = DEFAULTS.exportScale;
+  out.frameW = Math.round(Math.min(4096, Math.max(64, out.frameW)));
+  out.frameH = Math.round(Math.min(4096, Math.max(64, out.frameH)));
+  if (!HEX.test(out.bgColor)) out.bgColor = DEFAULTS.bgColor;
+  if (Array.isArray(src.lines)) {
+    out.lines.forEach((line, i) => {
+      const l = src.lines[i];
+      if (!l || typeof l !== 'object') return;
+      COLOR_KEYS.forEach(([k]) => { if (typeof l[k] === 'string' && HEX.test(l[k])) line[k] = l[k]; });
+      line.preset = typeof l.preset === 'string' && PRESETS[l.preset] ? l.preset : null;
+    });
+  }
+  return out;
+}
+
+let state = load();
+
 function mulberry32(a) {
   return function () {
     a |= 0; a = (a + 0x6D2B79F5) | 0;
@@ -441,9 +483,11 @@ function renderLine(line, bounds, P) {
 }
 
 // ---------- Rendu complet ----------
+// Rendu du texte seul, recadré. Renvoie aussi l'ancre (ax, ay) : la position, dans l'image,
+// du centre des faces avant — sert à placer le texte toujours au même endroit dans un cadre fixe.
 function render(scale) {
   const lines = layoutLines(scale).filter(l => l.letters.length);
-  if (!lines.length) return makeCanvas(10, 10);
+  if (!lines.length) return { canvas: makeCanvas(1, 1), ax: 0, ay: 0, pad: 0 };
 
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   lines.forEach(l => l.letters.forEach(L => {
@@ -479,6 +523,7 @@ function render(scale) {
 
   // Rotation globale
   let out = comp;
+  let ax = bounds.ox, ay = midY + bounds.oy;
   if (state.rotation) {
     const r = (state.rotation * Math.PI) / 180;
     const w = Math.abs(comp.width * Math.cos(r)) + Math.abs(comp.height * Math.sin(r));
@@ -487,8 +532,33 @@ function render(scale) {
     const o = out.getContext('2d');
     o.translate(w / 2, h / 2); o.rotate(r);
     o.drawImage(comp, -comp.width / 2, -comp.height / 2);
+    const dx = ax - comp.width / 2, dy = ay - comp.height / 2;
+    ax = w / 2 + dx * Math.cos(r) - dy * Math.sin(r);
+    ay = h / 2 + dx * Math.sin(r) + dy * Math.cos(r);
   }
-  return trim(out, Math.round(16 * scale));
+  const pad = Math.round(16 * scale);
+  const t = trim(out, pad);
+  return { canvas: t.canvas, ax: ax - t.dx, ay: ay - t.dy, pad };
+}
+
+// Image finale. Format fixe : le texte a toujours la même taille (proportionnelle à la largeur du cadre)
+// et son centre est toujours au même endroit, quel que soit le texte. "fit" : image recadrée sur le texte.
+// quality < 1 sert à l'aperçu (même image, en plus petit).
+function buildImage(quality = 1) {
+  if (state.frame === 'fit') {
+    const r = render(state.exportScale * quality);
+    return { canvas: withBackground(r.canvas), overflow: false };
+  }
+  const W = Math.max(1, Math.round(state.frameW * quality)), H = Math.max(1, Math.round(state.frameH * quality));
+  const r = render((state.textSize * W) / BASE_SIZE);
+  const out = makeCanvas(W, H);
+  const o = out.getContext('2d');
+  if (!state.transparent) { o.fillStyle = state.bgColor; o.fillRect(0, 0, W, H); }
+  const x = Math.round(W / 2 - r.ax), y = Math.round(H / 2 + state.offsetY * H - r.ay);
+  o.drawImage(r.canvas, x, y);
+  const p = r.pad - 1, cw = r.canvas.width, ch = r.canvas.height;
+  const overflow = cw > 2 && (x + p < 0 || y + p < 0 || x + cw - p > W || y + ch - p > H);
+  return { canvas: out, overflow };
 }
 
 // Recadre sur les pixels non transparents
@@ -506,10 +576,10 @@ function trim(canvas, pad) {
       }
     }
   }
-  if (x1 < 0) return makeCanvas(10, 10);
+  if (x1 < 0) return { canvas: makeCanvas(1, 1), dx: 0, dy: 0 };
   const out = makeCanvas(x1 - x0 + 1 + pad * 2, y1 - y0 + 1 + pad * 2);
   out.getContext('2d').drawImage(canvas, x0 - pad, y0 - pad, x1 - x0 + 1 + pad * 2, y1 - y0 + 1 + pad * 2, 0, 0, out.width, out.height);
-  return out;
+  return { canvas: out, dx: x0 - pad, dy: y0 - pad };
 }
 
 function withBackground(src) {
@@ -535,23 +605,41 @@ async function ensureFont() {
 // puis le rendu net dès que ça se calme.
 const PREVIEW_FAST = 0.45, PREVIEW_FULL = 0.85;
 let fineTimer = 0;
-function paint(scale) {
-  const img = withBackground(render(scale));
-  view.width = img.width; view.height = img.height;
-  view.getContext('2d').drawImage(img, 0, 0);
-  stage.classList.toggle('checker', state.transparent);
-  stage.style.backgroundColor = state.transparent ? '' : state.bgColor;
+// Qualité d'aperçu : l'image finale réduite à ~1000 px (ou moins pour l'aperçu rapide)
+function previewQuality(fast) {
+  const target = fast ? 520 : 1100;
+  if (state.frame === 'fit') return (fast ? PREVIEW_FAST : PREVIEW_FULL) / state.exportScale;
+  return Math.min(1, target / Math.max(state.frameW, state.frameH));
 }
+function fitView() {
+  if (!view.width) return;
+  const cs = getComputedStyle(stage);
+  const aw = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const ah = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  const k = Math.min(aw / view.width, ah / view.height);
+  view.style.width = `${Math.floor(view.width * k)}px`;
+  view.style.height = `${Math.floor(view.height * k)}px`;
+}
+function paint(fast) {
+  const { canvas, overflow } = buildImage(previewQuality(fast));
+  view.width = canvas.width; view.height = canvas.height;
+  view.getContext('2d').drawImage(canvas, 0, 0);
+  view.classList.toggle('checker', state.transparent);
+  view.classList.toggle('framed', state.frame !== 'fit');
+  fitView();
+  document.getElementById('overflowWarn').hidden = !overflow;
+}
+window.addEventListener('resize', fitView);
 function schedule() {
   save();
   clearTimeout(fineTimer);
-  fineTimer = setTimeout(async () => { await ensureFont(); paint(PREVIEW_FULL); }, 180);
+  fineTimer = setTimeout(async () => { await ensureFont(); paint(false); }, 180);
   if (pending) return;
   pending = true;
   requestAnimationFrame(async () => {
     await ensureFont();
     pending = false;
-    paint(PREVIEW_FAST);
+    paint(true);
   });
 }
 
@@ -623,8 +711,60 @@ function bindInputs() {
   bind('transparent', 'transparent', 'checked');
   bind('bgColor', 'bgColor');
   bind('exportScale', 'exportScale', 'value', Number);
+
+  // Format de l'image : un préréglage "LxH" fixe largeur et hauteur
+  const frameSel = document.getElementById('frame');
+  const fw = document.getElementById('frameW'), fh = document.getElementById('frameH');
+  frameSel.value = state.frame; fw.value = state.frameW; fh.value = state.frameH;
+  if (!bound) {
+    frameSel.addEventListener('input', () => {
+      state.frame = frameSel.value;
+      const m = /^(\d+)x(\d+)$/.exec(state.frame);
+      if (m) { state.frameW = +m[1]; state.frameH = +m[2]; fw.value = state.frameW; fh.value = state.frameH; }
+      updateFrameUI(); schedule();
+    });
+    [[fw, 'frameW'], [fh, 'frameH']].forEach(([el, key]) => el.addEventListener('input', () => {
+      const v = Math.round(+el.value);
+      if (v >= 64 && v <= 4096) { state[key] = v; schedule(); }
+    }));
+  }
+  updateFrameUI();
   bound = true;
 }
+
+function updateFrameUI() {
+  const fit = state.frame === 'fit';
+  document.getElementById('customFrame').hidden = state.frame !== 'custom';
+  document.getElementById('frameSliders').hidden = fit;
+  document.getElementById('exportScaleRow').hidden = !fit;
+}
+
+// ---------- Réglages dans un fichier ----------
+document.getElementById('btnSaveSettings').onclick = () => {
+  const { text1, text2, ...settings } = state;
+  const blob = new Blob([JSON.stringify({ app: 'TextRender 3D', version: 1, settings }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'reglages-textrender3d.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+const settingsFile = document.getElementById('settingsFile');
+document.getElementById('btnLoadSettings').onclick = () => settingsFile.click();
+settingsFile.addEventListener('change', async () => {
+  const file = settingsFile.files[0];
+  settingsFile.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    const { text1, text2 } = state;
+    state = { ...sanitize(data && data.settings ? data.settings : data), text1, text2 };
+    init();
+    toast('Réglages chargés');
+  } catch (e) {
+    toast('Fichier de réglages illisible');
+  }
+});
 
 function fileName() {
   const base = `${state.text1} ${state.text2}`.trim().replace(/[^\w-]+/g, '_') || 'texte';
@@ -642,7 +782,8 @@ document.getElementById('btnDownload').onclick = async () => {
   await ensureFont();
   toast('Rendu HD en cours…');
   await new Promise(r => setTimeout(r, 30));
-  const img = withBackground(render(state.exportScale));
+  const { canvas: img, overflow } = buildImage();
+  if (overflow) toast('Attention : le texte dépasse du cadre');
   img.toBlob(blob => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -656,7 +797,7 @@ document.getElementById('btnCopy').onclick = async () => {
   await ensureFont();
   toast('Rendu HD en cours…');
   await new Promise(r => setTimeout(r, 30));
-  const img = withBackground(render(state.exportScale));
+  const { canvas: img } = buildImage();
   img.toBlob(async blob => {
     try {
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
