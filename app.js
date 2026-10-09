@@ -671,6 +671,7 @@ document.getElementById('btnReset').onclick = () => {
   const { text1, text2 } = state;
   state = { ...structuredClone(DEFAULTS), text1, text2 };
   init();
+  toast('Réglages par défaut rétablis');
 };
 
 function init() {
