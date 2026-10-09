@@ -16,7 +16,7 @@ python3 -m http.server 8000   # puis http://localhost:8000
    « Taille du texte » et « Position verticale » règlent le placement ; garde les mêmes valeurs pour toute la série.
 2. Tape le texte de la **ligne du haut** et de la **ligne du bas**.
 3. Choisis les couleurs (préréglages Glace, Feu, Rouge, Vert, Bleu, Rose, Violet, Or, Noir, ou couleurs perso).
-4. Ajuste la police, l'espacement, l'inclinaison des lettres, la profondeur, la perspective, le contour, la brillance et l'ombre.
+4. Ajuste la police, l'espacement, l'**arc** (texte courbé vers le haut ou vers le bas), l'inclinaison des lettres, la profondeur, la perspective, le contour, la brillance et l'ombre.
 5. **Télécharger PNG** (fond transparent par défaut) ou **Copier** dans le presse-papiers.
 
 Le bouton 🎲 **Varier** change l'inclinaison aléatoire des lettres. Les réglages sont mémorisés dans le navigateur. Pour ne jamais les perdre (autre navigateur, autre PC,

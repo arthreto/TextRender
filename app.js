@@ -33,6 +33,7 @@ const SLIDERS = {
     ['jitterY',  'Lettres décalées',       0, 0.1, 0.005],
     ['stretch',  'Hauteur des lettres',    0.7, 1.8, 0.01],
     ['bold',     'Graisse (épaississement)', 0, 0.08, 0.002],
+    ['arc',      'Arc (texte courbé)',     -1, 1, 0.01],
     ['rotation', 'Rotation globale (°)',  -20, 20, 0.5],
   ],
   depthSliders: [
@@ -47,9 +48,10 @@ const SLIDERS = {
 };
 
 const DEFAULTS = {
+  version: 2,
   text1: 'NEXTBOT', text2: 'CREATION',
   font: 'Montserrat:900', upper: true, sameWidth: false,
-  spacing: 0.01, lineGap: 0.0, jitter: 0.5, jitterY: 0.008, stretch: 1.25, bold: 0.015, rotation: 0,
+  spacing: 0.01, lineGap: 0.24, jitter: 0.5, jitterY: 0.008, stretch: 1.25, bold: 0.015, arc: 0, rotation: 0,
   depth: 0.13, angle: 90, perspective: 1.7, outline: 0.016, bevelSize: 0.05, bevel: 0.45, shadow: 0,
   frame: '1024x1024', frameW: 1024, frameH: 1024, textSize: 0.14, offsetY: 0,
   transparent: true, bgColor: '#1b1f3a', exportScale: 2, seed: 7,
@@ -86,6 +88,11 @@ function sanitize(src) {
     if (typeof v === 'number' && !Number.isFinite(v)) continue;
     out[k] = v;
   }
+  // Migration : avant la version 2 l'écart par défaut entre les lignes était 0 (lignes collées).
+  // Si l'utilisateur ne l'avait pas changé, on prend le nouvel écart par défaut.
+  const ver = typeof src.version === 'number' ? src.version : 1;
+  if (ver < 2 && src.lineGap === 0) out.lineGap = DEFAULTS.lineGap;
+  out.version = DEFAULTS.version;
   const ranges = Object.fromEntries(Object.values(SLIDERS).flat().map(([k, , min, max]) => [k, [min, max]]));
   for (const [k, [min, max]] of Object.entries(ranges)) out[k] = Math.min(max, Math.max(min, out[k]));
   const options = id => [...document.querySelectorAll(`#${id} option`)].map(o => o.value);
@@ -155,7 +162,7 @@ function layoutLines(scale) {
   const target = nonEmpty.length ? nonEmpty.reduce((a, n) => a + n.total, 0) / nonEmpty.length : 0;
 
   let y = 0, prevH = 0;
-  return natural.map((n, li) => {
+  const lines = natural.map((n, li) => {
     const size = state.sameWidth && n.total > 0 ? n.size * (target / n.total) : n.size;
     meas.font = `${weight} ${size}px "${family}"`;
     const chars = [...n.text];
@@ -182,6 +189,30 @@ function layoutLines(scale) {
       return L;
     });
     return { li, letters, size, cap, h, total, cy, font: `${weight} ${size}px "${family}"`, colors: state.lines[li] };
+  });
+  bendLines(lines, BASE_SIZE * scale);
+  return lines;
+}
+
+// Arc : les lettres suivent des cercles concentriques (les deux lignes restent parallèles).
+// La courbure dépend de la taille des lettres, pas de la longueur du texte : un même réglage
+// donne la même courbe sur toutes les images. arc > 0 = bosse vers le haut, arc < 0 = creux.
+const ARC_MAX_CURVATURE = 0.22; // à arc = ±1, rayon = taille de police / 0.22 ≈ 4,5 × la police
+function bendLines(lines, ref) {
+  const used = lines.filter(l => l.letters.length);
+  if (!state.arc || !used.length) return;
+  const R = ref / (state.arc * ARC_MAX_CURVATURE); // rayon signé
+  const midY = (used[0].cy - used[0].h / 2 + used[used.length - 1].cy + used[used.length - 1].h / 2) / 2;
+  const yc = midY + R; // centre du cercle (en dessous pour une bosse, au-dessus pour un creux)
+  used.forEach(line => {
+    const r = yc - line.cy; // rayon signé de cette ligne
+    line.letters.forEach(L => {
+      const theta = L.x / r;
+      const dy = L.y - line.cy; // décalage aléatoire éventuel
+      L.x = r * Math.sin(theta);
+      L.y = yc - r * Math.cos(theta) + dy;
+      L.rot += theta;
+    });
   });
 }
 
