@@ -46,7 +46,7 @@ const DEFAULTS = {
   text1: 'NEXTBOT', text2: 'CREATION',
   font: 'Montserrat:900', upper: true, sameWidth: true,
   spacing: 0.01, lineGap: 0.0, jitter: 0.5, jitterY: 0.008, stretch: 1.25, bold: 0.015, rotation: 0,
-  depth: 0.17, angle: 90, perspective: 2.6, outline: 0.016, bevelSize: 0.034, bevel: 1, shadow: 0.35,
+  depth: 0.13, angle: 90, perspective: 1.7, outline: 0.016, bevelSize: 0.05, bevel: 0.45, shadow: 0,
   transparent: true, bgColor: '#1b1f3a', exportScale: 2, seed: 7,
   lines: [{ preset: 'glace', ...PRESETS.glace }, { preset: 'feu', ...PRESETS.feu }],
 };
@@ -58,13 +58,13 @@ let state = load();
 // ---------- Utilitaires ----------
 function load() {
   try {
-    const s = JSON.parse(localStorage.getItem('textrender3d_v4'));
+    const s = JSON.parse(localStorage.getItem('textrender3d_v5'));
     if (s && s.lines) return { ...structuredClone(DEFAULTS), ...s };
   } catch (e) { /* stockage indisponible */ }
   return structuredClone(DEFAULTS);
 }
 function save() {
-  try { localStorage.setItem('textrender3d_v4', JSON.stringify(state)); } catch (e) { /* ignore */ }
+  try { localStorage.setItem('textrender3d_v5', JSON.stringify(state)); } catch (e) { /* ignore */ }
 }
 function mulberry32(a) {
   return function () {
@@ -248,66 +248,133 @@ function blurField(a, w, h, r) {
   }
 }
 
-// Image de la face avant d'une lettre : dégradé + biseau éclairé par une lumière en haut à gauche.
-function letterFace(line, L, lut) {
-  const { size, colors } = line;
-  const b = Math.max(1.5, state.bevelSize * size);
-  const side = Math.ceil(Math.max(L.w, line.h) * 1.5 + 8 + 4 * state.bold * size);
+// Masque + carte de distance d'une lettre, dans un petit canvas centré sur la lettre.
+function letterMaps(line, L) {
+  const outlineW = state.outline * line.size;
+  const side = Math.ceil(Math.max(L.w, line.h) * 1.5 + 8 + 4 * state.bold * line.size + 2 * outlineW);
   const cv = makeCanvas(side, side);
   const c = cv.getContext('2d');
   setupText(c, line);
   c.fillStyle = '#fff';
   c.translate(side / 2 - L.x, side / 2 - L.y);
   glyph(c, line, L);
-
   const img = c.getImageData(0, 0, side, side);
-  const px = img.data;
   const alpha = new Uint8Array(side * side);
-  for (let i = 0; i < alpha.length; i++) alpha[i] = px[i * 4 + 3];
-  const dist = distanceField(alpha, side, side);
+  let x0 = side, y0 = side, x1 = 0, y1 = 0;
+  for (let i = 0; i < alpha.length; i++) {
+    const a = (alpha[i] = img.data[i * 4 + 3]);
+    if (a) {
+      const x = i % side, y = (i - x) / side;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+  }
+  // boîte englobante (avec marge pour le contour) : on ne manipule que ces pixels-là
+  const pad = Math.ceil(outlineW) + 3;
+  const bx = Math.max(0, x0 - pad), by = Math.max(0, y0 - pad);
+  const bw = Math.max(1, Math.min(side, x1 + pad + 1) - bx), bh = Math.max(1, Math.min(side, y1 + pad + 1) - by);
 
-  // hauteur du biseau : monte de 0 au bord à 1 à la distance b (profil légèrement arrondi)
+  // silhouette épaissie du contour, prête à être tamponnée à chaque tranche
+  const outline = makeCanvas(bw, bh);
+  const oc = outline.getContext('2d');
+  setupText(oc, line);
+  oc.fillStyle = line.colors.outline;
+  oc.translate(side / 2 - L.x - bx, side / 2 - L.y - by);
+  glyph(oc, line, L, outlineW);
+
+  return { side, alpha, dist: distanceField(alpha, side, side), x: L.x - side / 2, y: L.y - side / 2, bx, by, bw, bh, outline };
+}
+
+function imageFrom(M, colorAt) {
+  const { side, alpha, bx, by, bw, bh } = M;
+  const cv = makeCanvas(bw, bh);
+  const c = cv.getContext('2d');
+  const img = c.createImageData(bw, bh);
+  const px = img.data;
+  for (let y = 0; y < bh; y++) {
+    for (let x = 0; x < bw; x++) {
+      const i = (y + by) * side + x + bx;
+      if (!alpha[i]) continue;
+      const o = (y * bw + x) * 4;
+      colorAt(i, px, o);
+      px[o + 3] = alpha[i];
+    }
+  }
+  c.putImageData(img, 0, 0);
+  return cv;
+}
+
+// Face avant : dégradé vertical + léger modelé doux sur les bords (lumière en haut à gauche).
+function letterFace(line, L, M, lut) {
+  const { size, colors } = line;
+  const { side, alpha, dist } = M;
+  const b = Math.max(1.5, state.bevelSize * size);
   const H = new Float32Array(side * side);
   for (let i = 0; i < H.length; i++) {
     const t = Math.min(1, dist[i] / b);
-    H[i] = b * t * (1.25 - 0.25 * t); // chanfrein net, très légèrement arrondi
+    H[i] = b * Math.sin(t * Math.PI / 2); // profil bombé, sans arête
   }
-  blurField(H, side, side, Math.max(2, Math.round(b * 0.22)));
+  blurField(H, side, side, Math.max(2, Math.round(b * 0.3)));
 
   const strength = state.bevel;
   let lx = -0.45, ly = -0.8, lz = 0.55;
   const ln = Math.hypot(lx, ly, lz); lx /= ln; ly /= ln; lz /= ln;
   const dark = hexToRgb(colors.extNear);
   const top = L.y - line.h / 2, hh = line.h;
-  const oy = L.y - side / 2;
 
-  for (let y = 0; y < side; y++) {
-    const gy = Math.min(255, Math.max(0, Math.round(((oy + y - top) / hh) * 255))) * 4;
-    const br = lut[gy], bg = lut[gy + 1], bb = lut[gy + 2];
-    for (let x = 0; x < side; x++) {
-      const i = y * side + x;
-      if (!alpha[i]) continue;
-      const hx = (H[i + (x < side - 1 ? 1 : 0)] - H[i - (x > 0 ? 1 : 0)]) / 2;
-      const hy = (H[i + (y < side - 1 ? side : 0)] - H[i - (y > 0 ? side : 0)]) / 2;
-      let nx = -hx * strength, ny = -hy * strength;
-      const nn = Math.hypot(nx, ny, 1);
-      const dot = (nx * lx + ny * ly + lz) / nn;
-      const shade = dot / lz; // 1 = surface plane
-      let r = br, g = bg, bl = bb;
-      if (shade >= 1) {
-        const k = Math.min(1, (shade - 1) * 0.9);
-        r += (255 - r) * k; g += (255 - g) * k; bl += (255 - bl) * k;
-      } else {
-        const k = Math.max(0, shade);
-        r = dark[0] + (r - dark[0]) * k; g = dark[1] + (g - dark[1]) * k; bl = dark[2] + (bl - dark[2]) * k;
-      }
-      const o = i * 4;
-      px[o] = r; px[o + 1] = g; px[o + 2] = bl;
+  const canvas = imageFrom(M, (i, px, o) => {
+    const x = i % side, y = (i - x) / side;
+    const gy = Math.min(255, Math.max(0, Math.round(((M.y + y - top) / hh) * 255))) * 4;
+    let r = lut[gy], g = lut[gy + 1], bl = lut[gy + 2];
+    const hx = (H[i + (x < side - 1 ? 1 : 0)] - H[i - (x > 0 ? 1 : 0)]) / 2;
+    const hy = (H[i + (y < side - 1 ? side : 0)] - H[i - (y > 0 ? side : 0)]) / 2;
+    const nx = -hx * strength, ny = -hy * strength;
+    const shade = (nx * lx + ny * ly + lz) / Math.hypot(nx, ny, 1) / lz; // 1 = surface plane
+    if (shade >= 1) {
+      const k = Math.min(0.6, (shade - 1) * 0.6);
+      r += (255 - r) * k; g += (255 - g) * k; bl += (255 - bl) * k;
+    } else {
+      const k = 1 - Math.min(0.5, (1 - shade) * 0.6);
+      r = dark[0] + (r - dark[0]) * k; g = dark[1] + (g - dark[1]) * k; bl = dark[2] + (bl - dark[2]) * k;
+    }
+    px[o] = r; px[o + 1] = g; px[o + 2] = bl;
+  });
+  return { canvas, x: M.x + M.bx, y: M.y + M.by };
+}
+
+// Parois du relief : chaque tranche n'est visible que sur son bord, on colore donc chaque pixel
+// selon l'orientation du bord le plus proche (normale = gradient de la distance).
+// Parois tournées vers la gauche/le haut = éclairées, vers la droite/le bas = dans l'ombre.
+// La profondeur assombrit ensuite les parois de façon continue (calque sombre en transparence).
+function letterWalls(line, M) {
+  const { colors } = line;
+  const { side, alpha } = M;
+  const D = Float32Array.from(M.dist);
+  blurField(D, side, side, 1);
+  const near = hexToRgb(colors.extNear), far = hexToRgb(colors.extFar);
+  const lit = hexToRgb(colors.faceBottom);
+  let lx = -0.9, ly = -0.45;
+  const ln = Math.hypot(lx, ly); lx /= ln; ly /= ln;
+
+  const base = new Float32Array(side * side * 3);
+  for (let i = 0; i < alpha.length; i++) {
+    if (!alpha[i]) continue;
+    const x = i % side, y = (i - x) / side;
+    const gx = (D[i + (x < side - 1 ? 1 : 0)] - D[i - (x > 0 ? 1 : 0)]) / 2;
+    const gy = (D[i + (y < side - 1 ? side : 0)] - D[i - (y > 0 ? side : 0)]) / 2;
+    const gn = Math.hypot(gx, gy);
+    // normale sortante = -gradient (la distance croît vers l'intérieur)
+    const nx = gn > 1e-3 ? -gx / gn : 0, ny = gn > 1e-3 ? -gy / gn : 1;
+    const d = nx * lx + ny * ly; // -1 (ombre) … 1 (lumière)
+    for (let k = 0; k < 3; k++) {
+      const v = d >= 0 ? near[k] + (lit[k] - near[k]) * 0.35 * d : near[k] + (far[k] - near[k]) * 0.55 * -d;
+      base[i * 3 + k] = v;
     }
   }
-  c.setTransform(1, 0, 0, 1, 0, 0);
-  c.putImageData(img, 0, 0);
-  return { canvas: cv, x: L.x - side / 2, y: L.y - side / 2 };
+  const lit_ = imageFrom(M, (i, px, o) => {
+    px[o] = base[i * 3]; px[o + 1] = base[i * 3 + 1]; px[o + 2] = base[i * 3 + 2];
+  });
+  const dark_ = imageFrom(M, (i, px, o) => { px[o] = far[0]; px[o + 1] = far[1]; px[o + 2] = far[2]; });
+  return { lit: lit_, dark: dark_ };
 }
 
 // ---------- Rendu d'une ligne ----------
@@ -320,31 +387,53 @@ function renderLine(line, bounds, P) {
   ctx.translate(bounds.ox, bounds.oy);
   setupText(ctx, line);
 
-  const depthPx = state.depth * size * 1.3;
+  // déplacement maximal d'un point de la ligne vers le point de fuite (en px)
+  const shifts = line.letters.map(L => {
+    let m = 1;
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+      const px = L.x + sx * L.w / 2, py = L.y + sy * line.h / 2;
+      m = Math.max(m, P.k * Math.hypot(P.vx - px, P.vy - py));
+    }
+    return m;
+  });
+  const maxShift = Math.max(...shifts);
+
+  const maps = line.letters.map(L => letterMaps(line, L));
 
   // 1) Contour sombre autour de toute la silhouette (face + relief)
   if (outlineW > 0) {
-    ctx.fillStyle = colors.outline;
-    const steps = Math.max(1, Math.ceil(depthPx / Math.max(1, outlineW * 0.7)));
+    const steps = Math.max(1, Math.ceil(maxShift / Math.max(1, outlineW * 0.7)));
     for (let s = steps; s >= 0; s--) {
-      withDepth(ctx, P, s / steps, () => line.letters.forEach(L => {
-        glyph(ctx, line, L, outlineW);
-      }));
+      withDepth(ctx, P, s / steps, () => maps.forEach(M => ctx.drawImage(M.outline, M.x + M.bx, M.y + M.by)));
     }
   }
 
-  // 2) Relief : on empile les tranches du fond vers l'avant
-  const steps = Math.max(1, Math.ceil(depthPx));
+  // 2) Relief : on empile les tranches (parois éclairées) du fond vers l'avant
+  const walls = maps.map(M => letterWalls(line, M));
+  // Ordre global du fond vers l'avant, mais chaque lettre n'a besoin que d'environ 1 tranche par pixel
+  // de son propre déplacement (les lettres proches du point de fuite bougent moins).
+  const steps = Math.max(1, Math.ceil(maxShift));
+  const n = shifts.map(v => Math.max(1, Math.ceil(v)));
+  const last = n.map(() => -1);
   for (let s = steps; s >= 1; s--) {
-    const t = s / steps;
-    ctx.fillStyle = mix(colors.extNear, colors.extFar, Math.pow(t, 0.9));
-    withDepth(ctx, P, t, () => line.letters.forEach(L => glyph(ctx, line, L)));
+    maps.forEach((M, i) => {
+      const idx = Math.ceil((s / steps) * n[i]);
+      if (idx === last[i]) return;
+      last[i] = idx;
+      const t = idx / n[i];
+      withDepth(ctx, P, t, () => {
+        ctx.drawImage(walls[i].lit, M.x + M.bx, M.y + M.by);
+        ctx.globalAlpha = 0.7 * Math.pow(t, 0.85);
+        ctx.drawImage(walls[i].dark, M.x + M.bx, M.y + M.by);
+        ctx.globalAlpha = 1;
+      });
+    });
   }
 
-  // 3) Faces avant, lettre par lettre (le biseau sombre sépare naturellement les lettres)
+  // 3) Faces avant, lettre par lettre
   const lut = gradientLUT(colors);
-  line.letters.forEach(L => {
-    const f = letterFace(line, L, lut);
+  line.letters.forEach((L, i) => {
+    const f = letterFace(line, L, maps[i], lut);
     ctx.drawImage(f.canvas, f.x, f.y);
   });
 
@@ -442,18 +531,27 @@ async function ensureFont() {
   try { await document.fonts.load(`${weight} 100px "${family}"`, state.text1 + state.text2 + 'H'); } catch (e) { /* ignore */ }
 }
 
+// Aperçu en deux temps : un rendu rapide en basse résolution pendant qu'on tape / glisse un curseur,
+// puis le rendu net dès que ça se calme.
+const PREVIEW_FAST = 0.45, PREVIEW_FULL = 0.85;
+let fineTimer = 0;
+function paint(scale) {
+  const img = withBackground(render(scale));
+  view.width = img.width; view.height = img.height;
+  view.getContext('2d').drawImage(img, 0, 0);
+  stage.classList.toggle('checker', state.transparent);
+  stage.style.backgroundColor = state.transparent ? '' : state.bgColor;
+}
 function schedule() {
   save();
+  clearTimeout(fineTimer);
+  fineTimer = setTimeout(async () => { await ensureFont(); paint(PREVIEW_FULL); }, 180);
   if (pending) return;
   pending = true;
   requestAnimationFrame(async () => {
     await ensureFont();
     pending = false;
-    const img = withBackground(render(1));
-    view.width = img.width; view.height = img.height;
-    view.getContext('2d').drawImage(img, 0, 0);
-    stage.classList.toggle('checker', state.transparent);
-    stage.style.backgroundColor = state.transparent ? '' : state.bgColor;
+    paint(PREVIEW_FAST);
   });
 }
 
@@ -542,6 +640,8 @@ function toast(msg) {
 
 document.getElementById('btnDownload').onclick = async () => {
   await ensureFont();
+  toast('Rendu HD en cours…');
+  await new Promise(r => setTimeout(r, 30));
   const img = withBackground(render(state.exportScale));
   img.toBlob(blob => {
     const a = document.createElement('a');
@@ -554,6 +654,8 @@ document.getElementById('btnDownload').onclick = async () => {
 
 document.getElementById('btnCopy').onclick = async () => {
   await ensureFont();
+  toast('Rendu HD en cours…');
+  await new Promise(r => setTimeout(r, 30));
   const img = withBackground(render(state.exportScale));
   img.toBlob(async blob => {
     try {
