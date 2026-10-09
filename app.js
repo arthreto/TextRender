@@ -7,7 +7,7 @@
 // outline : contour sombre
 const PRESETS = {
   glace:  { name: 'Glace',  faceTop: '#ffffff', faceMid: '#e6ecfb', faceBottom: '#b7c4e6', extNear: '#4a6290', extFar: '#1f2b47', outline: '#111827' },
-  feu:    { name: 'Feu',    faceTop: '#ffd21a', faceMid: '#ffab00', faceBottom: '#ff7008', extNear: '#c8360a', extFar: '#560e02', outline: '#2c0a04' },
+  feu:    { name: 'Feu',    faceTop: '#ffd400', faceMid: '#ffb300', faceBottom: '#ff7406', extNear: '#c8360a', extFar: '#560e02', outline: '#2c0a04' },
   rouge:  { name: 'Rouge',  faceTop: '#ffa08f', faceMid: '#ff3d3d', faceBottom: '#c4121f', extNear: '#a50f1b', extFar: '#55060f', outline: '#2b0307' },
   vert:   { name: 'Vert',   faceTop: '#eaff86', faceMid: '#7fe03a', faceBottom: '#2e9e1c', extNear: '#24811a', extFar: '#0f420c', outline: '#07240a' },
   bleu:   { name: 'Bleu',   faceTop: '#b5f3ff', faceMid: '#3cb8ff', faceBottom: '#1660d8', extNear: '#1450b0', extFar: '#0a2766', outline: '#061433' },
@@ -28,12 +28,13 @@ const SLIDERS = {
     ['jitter',   'Lettres penchées (°)',   0, 15, 0.5],
     ['jitterY',  'Lettres décalées',       0, 0.1, 0.005],
     ['stretch',  'Hauteur des lettres',    0.7, 1.8, 0.01],
+    ['bold',     'Graisse (épaississement)', 0, 0.08, 0.002],
     ['rotation', 'Rotation globale (°)',  -20, 20, 0.5],
   ],
   depthSliders: [
     ['depth',       'Profondeur',          0, 0.4, 0.005],
     ['angle',       'Direction du relief (°)', 0, 180, 1],
-    ['perspective', 'Perspective',         0, 1.5, 0.05],
+    ['perspective', 'Perspective',         0, 4, 0.05],
     ['outline',     'Épaisseur du contour', 0, 0.08, 0.002],
     ['bevelSize',   'Largeur du biseau',   0, 0.1, 0.002],
     ['bevel',       'Intensité du biseau', 0, 1.5, 0.05],
@@ -44,8 +45,8 @@ const SLIDERS = {
 const DEFAULTS = {
   text1: 'NEXTBOT', text2: 'CREATION',
   font: 'Montserrat:900', upper: true, sameWidth: true,
-  spacing: -0.02, lineGap: 0.0, jitter: 0.5, jitterY: 0.008, stretch: 1.15, rotation: 0,
-  depth: 0.15, angle: 90, perspective: 0.8, outline: 0.02, bevelSize: 0.04, bevel: 1, shadow: 0.35,
+  spacing: 0.01, lineGap: 0.0, jitter: 0.5, jitterY: 0.008, stretch: 1.25, bold: 0.015, rotation: 0,
+  depth: 0.17, angle: 90, perspective: 2.6, outline: 0.016, bevelSize: 0.034, bevel: 1, shadow: 0.35,
   transparent: true, bgColor: '#1b1f3a', exportScale: 2, seed: 7,
   lines: [{ preset: 'glace', ...PRESETS.glace }, { preset: 'feu', ...PRESETS.feu }],
 };
@@ -57,13 +58,13 @@ let state = load();
 // ---------- Utilitaires ----------
 function load() {
   try {
-    const s = JSON.parse(localStorage.getItem('textrender3d_v2'));
+    const s = JSON.parse(localStorage.getItem('textrender3d_v4'));
     if (s && s.lines) return { ...structuredClone(DEFAULTS), ...s };
   } catch (e) { /* stockage indisponible */ }
   return structuredClone(DEFAULTS);
 }
 function save() {
-  try { localStorage.setItem('textrender3d_v2', JSON.stringify(state)); } catch (e) { /* ignore */ }
+  try { localStorage.setItem('textrender3d_v4', JSON.stringify(state)); } catch (e) { /* ignore */ }
 }
 function mulberry32(a) {
   return function () {
@@ -142,14 +143,20 @@ function layoutLines(scale) {
   });
 }
 
-// Dessine la lettre L (centrée sur L.x, L.y) avec l'opération op ('fill' ou 'stroke').
-function glyph(ctx, line, L, op) {
+// Dessine la silhouette de la lettre L (centrée sur L.x, L.y), épaissie de "grow" px de chaque côté
+// en plus de la graisse globale (state.bold) — le trait arrondi adoucit aussi les coins.
+function glyph(ctx, line, L, grow = 0) {
   ctx.save();
   ctx.translate(L.x, L.y);
   ctx.rotate(L.rot);
   ctx.scale(1, state.stretch);
-  if (op === 'stroke') ctx.strokeText(L.ch, 0, line.cap / 2);
-  else ctx.fillText(L.ch, 0, line.cap / 2);
+  ctx.fillText(L.ch, 0, line.cap / 2);
+  const w = 2 * (state.bold * line.size + grow);
+  if (w > 0) {
+    ctx.lineWidth = w;
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.strokeText(L.ch, 0, line.cap / 2);
+  }
   ctx.restore();
 }
 
@@ -245,13 +252,13 @@ function blurField(a, w, h, r) {
 function letterFace(line, L, lut) {
   const { size, colors } = line;
   const b = Math.max(1.5, state.bevelSize * size);
-  const side = Math.ceil(Math.max(L.w, line.h) * 1.5 + 8);
+  const side = Math.ceil(Math.max(L.w, line.h) * 1.5 + 8 + 4 * state.bold * size);
   const cv = makeCanvas(side, side);
   const c = cv.getContext('2d');
   setupText(c, line);
   c.fillStyle = '#fff';
   c.translate(side / 2 - L.x, side / 2 - L.y);
-  glyph(c, line, L, 'fill');
+  glyph(c, line, L);
 
   const img = c.getImageData(0, 0, side, side);
   const px = img.data;
@@ -263,9 +270,9 @@ function letterFace(line, L, lut) {
   const H = new Float32Array(side * side);
   for (let i = 0; i < H.length; i++) {
     const t = Math.min(1, dist[i] / b);
-    H[i] = b * (t * (1.6 - 0.6 * t));
+    H[i] = b * t * (1.25 - 0.25 * t); // chanfrein net, très légèrement arrondi
   }
-  blurField(H, side, side, Math.max(1, Math.round(b * 0.25)));
+  blurField(H, side, side, Math.max(2, Math.round(b * 0.22)));
 
   const strength = state.bevel;
   let lx = -0.45, ly = -0.8, lz = 0.55;
@@ -317,13 +324,11 @@ function renderLine(line, bounds, P) {
 
   // 1) Contour sombre autour de toute la silhouette (face + relief)
   if (outlineW > 0) {
-    ctx.strokeStyle = colors.outline;
     ctx.fillStyle = colors.outline;
-    ctx.lineWidth = outlineW * 2;
     const steps = Math.max(1, Math.ceil(depthPx / Math.max(1, outlineW * 0.7)));
     for (let s = steps; s >= 0; s--) {
       withDepth(ctx, P, s / steps, () => line.letters.forEach(L => {
-        glyph(ctx, line, L, 'stroke'); glyph(ctx, line, L, 'fill');
+        glyph(ctx, line, L, outlineW);
       }));
     }
   }
@@ -333,15 +338,12 @@ function renderLine(line, bounds, P) {
   for (let s = steps; s >= 1; s--) {
     const t = s / steps;
     ctx.fillStyle = mix(colors.extNear, colors.extFar, Math.pow(t, 0.9));
-    withDepth(ctx, P, t, () => line.letters.forEach(L => glyph(ctx, line, L, 'fill')));
+    withDepth(ctx, P, t, () => line.letters.forEach(L => glyph(ctx, line, L)));
   }
 
-  // 3) Faces avant, lettre par lettre (chaque lettre a son liseré sombre)
+  // 3) Faces avant, lettre par lettre (le biseau sombre sépare naturellement les lettres)
   const lut = gradientLUT(colors);
-  ctx.strokeStyle = colors.outline;
-  ctx.lineWidth = Math.max(1, state.outline * size * 0.6);
   line.letters.forEach(L => {
-    glyph(ctx, line, L, 'stroke');
     const f = letterFace(line, L, lut);
     ctx.drawImage(f.canvas, f.x, f.y);
   });
